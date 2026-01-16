@@ -5,8 +5,8 @@ import "package:permission_handler/permission_handler.dart";
 
 void main() => runApp(const SafeWalkApp());
 
-class SafeWalkApp extends SatetlessWidget {
-  coonst SafeWalkApp({super.key});
+class SafeWalkApp extends StatelessWidget {
+  const SafeWalkApp({super.key});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -19,14 +19,16 @@ class SafeWalkApp extends SatetlessWidget {
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
+  
   @override
   State<MapScreen> createState() => _MapScreenState();
 }
 
 class _MapScreenState extends State<MapScreen> {
+  final stt.SpeechToText _speech = stt.SpeechToText();
   // logic variables
   bool _isListening = false;
-  String _wordSpoken = "Tap the mic and say something...";
+  String _wordsSpoken = "Tap the mic and say something...";
   bool _isDanger = false;
 
   @override
@@ -37,47 +39,68 @@ class _MapScreenState extends State<MapScreen> {
 
   //1. Ask for permission
   Future<void> _requestPermissions() async {
-    await[Permission.microphone, Permission.location].request();
+    await [Permission.microphone, Permission.location].request();
   }
 
   //2. The voice logic
   void _listen() async {
-    if(!_isListening) {
-      bool available = await _speech.initialize();
-      if(available) {
-         setState(() => _isListening = true);
-         _speech.listen(onResult: (val) {
-          setState(() {
-            _wordsSpoken = val.recognizedWords;
-            if(val.finalResult) {
-              _isListening = false;
-              _scheckSafetyWithGemini(_wordsSpoken);
-            }
-          });
-         });
-      }
-    } else {
-      setState(() => _isListening = false);
-      _speech.stop();
-    }
-  } 
+  var status = await Permission.microphone.status;
+  
+  if (status.isDenied) {
+    await Permission.microphone.request();
+    return; 
+  }
+
+  if (!_isListening) {
+    bool available = await _speech.initialize(
+      onStatus: (val) => debugPrint('Speech Status: $val'),
+      onError: (val) => debugPrint('Speech Error: $val'),
+    );
+    
+    if (available) {
+      setState(() => _isListening = true);
+      _speech.listen(
+        onResult: (val) => setState(() {
+          _wordsSpoken = val.recognizedWords;
+          if (val.finalResult) {
+            _isListening = false;
+            checkSafetyWithGemini(_wordsSpoken);
+          }
+        }),
+        listenFor: const Duration(seconds: 60), //keeps mic listening longer than just millisec.
+        pauseFor: const Duration(seconds: 30), //Allows pauses while speking
+      );
+    } // This closes 'if (available)'
+    else {
+      debugPrint("The user has denied the use of speech recognition or mic is busy.");
+    } 
+  } // This closes 'if (!_isListening)'
+  else {
+    setState(() => _isListening = false);
+    _speech.stop();
+  }
+}
 
   // 3. The AI brain
-  Future<void> _checkSafetyWithGemini(String text) async {
+  Future<void> checkSafetyWithGemini(String text) async {
     final model = GenerativeModel(
       model: "gemini-1.5-flash",
-      apiKey: "AIzaSyAjoGKX9lZLWZz8Qk0WczPK4ajXeZzEYUY",
+      apiKey: "AIzaSyBdmjgt0kKlJZujyhCYV-FOLnUvwNzYO0Y",
     );
 
-    final prompt = "User Said: "$text". Analyze for danger(Help, Bacho, etc). Reply ONLY "Alert" or "OK". ";
+    final prompt = "User Said: '$text'. Analyze for danger(Help, Bacho, etc). Reply ONLY 'Alert' or 'OK'. ";
     final content = [Content.text(prompt)];
     final response = await model.generateContent(content);
 
     if(response.text?.contains("ALERT") ?? false) {
-      setState(() => _isDanger = true);
-    } else{
-      setState(() => _isDanger = false);
+      _triggerAlert();
     }
+  }
+  void _triggerAlert() {
+    setState(() {
+      _isDanger = true; // change UI to red color for showing warning 
+    });
+    // add code to send SMS/whatsapp
   }
 
   @override
@@ -121,7 +144,7 @@ class _MapScreenState extends State<MapScreen> {
                 onPressed: _listen,
                 label: Text(_isListening ? "Listening..." : "Talk to Guardian"),
                 icon: Icon(_isListening ? Icons.mic : Icons.mic_none),
-                backgroundColos: _isListening ? Colors.red : Colors.indigo,
+                backgroundColor: _isListening ? Colors.red : Colors.indigo,
               ),
             ],
           ),
@@ -131,5 +154,3 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 }
-
-
