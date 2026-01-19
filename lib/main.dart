@@ -44,6 +44,7 @@ class _MapScreenState extends State<MapScreen> {
 
   //2. The voice logic
   void _listen() async {
+  // checkSafetyWithGemini("Help me! Someone is following me!");
   var status = await Permission.microphone.status;
   
   if (status.isDenied) {
@@ -59,6 +60,7 @@ class _MapScreenState extends State<MapScreen> {
     
     if (available) {
       setState(() => _isListening = true);
+      // checkSafetyWithGemini("Help me, someone is following me!");
       _speech.listen(
         onResult: (val) => setState(() {
           _wordsSpoken = val.recognizedWords;
@@ -83,30 +85,50 @@ class _MapScreenState extends State<MapScreen> {
 
   // 3. The AI brain
   Future<void> checkSafetyWithGemini(String text) async {
-    final model = GenerativeModel(
-      model: "gemini-1.5-flash",
-      apiKey: "AIzaSyBdmjgt0kKlJZujyhCYV-FOLnUvwNzYO0Y",
-    );
-
-    final prompt = "User Said: '$text'. Analyze for danger(Help, Bacho, etc). Reply ONLY 'Alert' or 'OK'. ";
-    final content = [Content.text(prompt)];
-    final response = await model.generateContent(content);
-
-    if(response.text?.contains("ALERT") ?? false) {
-      _triggerAlert();
+    String lowerText = text.toLowerCase();
+    if(lowerText.contains("help") || lowerText.contains("bachao") || lowerText.contains("danger")) {
+      setState(() {
+        _isDanger = true;
+        _wordsSpoken = "Emergency Detected: $text";
+      });
+      return;
     }
-  }
-  void _triggerAlert() {
-    setState(() {
-      _isDanger = true; // change UI to red color for showing warning 
-    });
-    // add code to send SMS/whatsapp
+    final model = GenerativeModel(model: "gemini-1.5-flash", apiKey: "AIzaSyD4f_SwQ9hiXKGAj8j5oT8NHvAhkYUYuIY");
+
+    final prompt = """
+      Analyze this user audio transcript: '$text'.
+      Is the user in immediate physical danger?
+      Look for keywords in English, Hindi, or Marathi like 'Help', 'Bachao', 'Follow', 'Kidnap'.
+      Reply with ONLY one word: 'ALERT' or 'SAFE'.
+    """;
+    try {
+      final content = [Content.text(prompt)];
+      final response = await model.generateContent(content);
+      final responseText = response.text?.trim().toUpperCase() ?? "";
+
+      setState(() {
+        if(responseText.contains("ALERT")) {
+          _isDanger = true;
+          _wordsSpoken = "⚠️ ALERT: $text";
+        } else {
+          _isDanger = false;
+          _wordsSpoken = "✅ Safe: $text";
+        }
+      });
+    } catch (e) {
+      debugPrint("---GEMINI DEBUG ERROR---");
+      debugPrint(e.toString());
+      debugPrint("----------------");
+      setState(() {
+        _wordsSpoken = "AI Error: terminal/console";
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _isDanger ? Colors.red[900]: Colors.grey[100],
+      backgroundColor: _isDanger ? Colors.red.shade900: Colors.indigo.shade900,
       appBar: AppBar(
         title: const Text("SafeWalk Guardian"),
         backgroundColor: _isDanger ? Colors.red : Colors.indigo,
@@ -123,7 +145,7 @@ class _MapScreenState extends State<MapScreen> {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 22,
-                  color: _isDanger ? Colors.white : Colors.black87,
+                  color: Colors.white ,
                   fontWeight: FontWeight.bold,                
                 ),
               ),
@@ -146,6 +168,24 @@ class _MapScreenState extends State<MapScreen> {
                 icon: Icon(_isListening ? Icons.mic : Icons.mic_none),
                 backgroundColor: _isListening ? Colors.red : Colors.indigo,
               ),
+
+              if(_isDanger)...[
+                const SizedBox(height: 15),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _isDanger = false;
+                      _wordsSpoken = "Tap the mic and say something...";
+                    });
+                  },
+                  icon: const Icon(Icons.check_circle, color: Colors.white),
+                  label: const Text("i AM SAFE NOW", style: TextStyle(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green.shade600,
+                    minimumSize: const Size(double.infinity,50),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
